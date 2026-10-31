@@ -1,0 +1,2 @@
+# keep the patch byte-exact on Windows checkouts (git apply)
+*.patch -text
