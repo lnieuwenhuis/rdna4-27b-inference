@@ -1,0 +1,4 @@
+numpy
+gguf
+# optional: better script detection in vocab_audit.py
+# regex

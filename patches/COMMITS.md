@@ -1,0 +1,48 @@
+# Patch against achyudh/llama.cpp @ b540a4b (`feature/adaptive-kv-stream-rocm`)
+
+`kvwin-rdna4-windows.patch` = `git diff b540a4b 82b3314`. It includes raffidahmad's Windows HSA patch. Commits, oldest first:
+
+- `5d1ecce` chore: carry the production build's local changes (copy engine, HIP CMake)
+- `36907c1` feat(kv-stream): adaptive resident pool sized to the live VRAM budget
+- `fdd9455` fix(kv-stream): adaptive pool review fixes
+- `b687057` feat(kv-stream): one budget for the pool and context-sized slots
+- `9c4fdc7` feat(spec): sliding-window KV cache for the MTP draft context
+- `0c5022e` perf(server): reuse the buffers of erased context checkpoints
+- `5b19e90` feat(spec): longer MTP drafts past a context length
+- `b9fbb9a` fix(kv-stream): re-split only when the context passes pool + slots
+- `5fa4f88` fix(spec): no MTP draft window when it holds the whole context
+- `d01199b` fix(spec): bound --spec-draft-n-max-long to 16
+- `a1ed687` perf(spec): time each drafter's process() calls
+- `89a710e` feat(spec): probabilistic DFlash2 drafting behind --spec-dflash2-sampling
+- `6eb2ecc` feat(spec): end DFlash2 drafts where the cumulative confidence drops (--spec-draft-p-cum)
+- `b548d61` fix(spec): reject NaN for --spec-draft-p-cum and document its temperature
+- `a764887` perf(spec): warm up the DFlash draft block at load
+- `8b3c6bc` fix(kv-stream): keep the split pool and slots in one buffer per budget
+- `ae9812e` test(kv-stream): the split arena holds every split, and re-splits allocate nothing
+- `cc22896` fix(kv-stream): cap the split arena at the whole context
+- `7dd61c2` feat(spec): drafter selection policy for --spec-switch
+- `874c933` feat(spec): switch between draft-mtp and draft-dflash per step (--spec-switch)
+- `ed99a24` fix(spec): review fixes for --spec-switch
+- `0a99b6b` chore: carry the production build's local changes (copy engine, HIP CMake)
+- `596e92e` feat(ggml-cuda): report whether the copy engine is isolated
+- `73144ab` fix(kv-stream): wait for streamed graphs when the copy engine is not isolated
+- `ce3f16a` fix(ggml-cuda): paged decode waits for streamed K/V in a 1-thread kernel
+- `597433f` test(backend-ops): paged flash attention with cross-queue sync flags
+- `000471d` fix(ggml-cuda): keep the paged decode partials' acquire after the wait kernel
+- `c000a7f` fix(ggml-cuda): do not claim flash attention with sync flags without HIP
+- `9a88dc7` feat(ggml): optional host copy of the flash attention sync tag
+- `f6c60b3` fix(ggml-cuda): wait for streamed K/V on the host without an isolated copy engine
+- `8754fd9` fix(kv-stream): give the attention the host copy of the tag
+- `32e42f0` test(backend-ops): paged flash attention sync with the host tag and a late publish
+- `977081a` fix(ggml-cuda): submit the end of host-waited graphs; one host-wait policy
+- `07dcb9d` fix(ggml): ggml_flash_attn_ext_set_sync clears the host copy of the tag
+- `943790d` test(backend-ops): cover the paged prefill sync and check the late publish
+- `26daefe` feat(ggml): allocate a context's tensors in buffers of a maximum size
+- `f3c44c9` feat(kv-stream): allocate the resident pool and the slots in chunks
+- `9dc899f` test(kv-stream-split): every split fits the chunked arena regions
+- `1686950` fix(kv-stream): keep trailing views in the last buffer; chunk the split arena only on request
+- `9cae6dc` feat(kv-stream): re-plan residency when the context shrinks
+- `d4cd972` fix(kv-stream): keep re-planned pages in runs; spare the page past the context
+- `b523127` fix(tests): restore the escaped newline in a test-kv-stream-place message
+- `9099e1d` fix(kv-stream): re-plan stale pages only while the context does not fit the pool
+- `d78a6c2` fix(kv-stream): review fixes for the fit-gated stale-page re-plan

@@ -1,0 +1,7 @@
+# torch with GPU support (train_mtp.py runs on device "cuda"; ROCm builds of PyTorch expose AMD GPUs under that name)
+torch
+numpy
+# or point LLAMA_CPP_DIR at the llama.cpp checkout to use its gguf-py instead
+gguf
+# prepare_mtp_data.py (parquet datasets)
+pyarrow

@@ -1,0 +1,8 @@
+work/
+__pycache__/
+*.pyc
+*.obj
+build/src/
+build/.venv-rocm/
+models/
+*.gguf
