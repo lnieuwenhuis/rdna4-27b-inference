@@ -2,13 +2,11 @@
 
 This is the setup that runs **Swift 1.5**, UkisAI's reasoning-efficient fine-tune of **Qwen3.8-27B**, on an
 **RX 9070 XT (RDNA 4, 16 GB) under Windows 11**. It serves the model's full 262,144-token context and decodes
-coding-agent turns at about **100–115 tok/s**. Stock llama.cpp on the same card ran about 40 tok/s on ROCm and
-21–22 tok/s on Vulkan.
+coding-agent turns at about **100–115 tok/s**. On a chat benchmark it runs 66–70 tok/s; stock llama.cpp ran base
+Qwen3.8-27B (IQ4_XS) on the same card at about 40 tok/s with ROCm and 21–22 tok/s with Vulkan.
 
 Model files: **[Safasfly/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-P2-MTP1-GGUF](https://huggingface.co/Safasfly/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-P2-MTP1-GGUF)**
 (IQ3_S, Latin-pruned vocabulary, self-distilled MTP draft head).
-
-The rest of this README explains each layer of the stack, what it bought, and the things that didn't work.
 
 | | |
 | --- | --- |
@@ -39,14 +37,14 @@ Stock references, measured earlier on the same card with base Qwen3.8-27B IQ4_XS
 | llama.cpp ROCm without speculative decoding | 36 tok/s |
 | llama.cpp Vulkan | 21–22 tok/s |
 
-## The stack, layer by layer
+## Setup
 
-### 1. The model: Swift 1.5 GSQ-RCO IQ3_S
+### 1. Model: Swift 1.5 GSQ-RCO IQ3_S
 
-Qwen3.8-27B is the strongest model that fits a 16 GB card. Its Artificial Analysis Intelligence Index is 34, against
-18 for Qwen3.6-35B-A3B; the MoE models that easily reach 80+ tok/s are roughly half as capable.
+Of the models that fit a 16 GB card, Qwen3.8-27B scores highest on the Artificial Analysis Intelligence Index: 34,
+against 18 for Qwen3.6-35B-A3B. The MoE models that reach 80+ tok/s easily score about half as high.
 
-Swift 1.5 thinks much less on the same problems. Replaying a real chat, it used 2,015 → 939 thinking tokens on the
+Swift 1.5 writes far fewer thinking tokens for the same problems. Replaying a real chat, it used 2,015 → 939 thinking tokens on the
 hard step (−53%) and 1,079 → 656 on the follow-up (−39%), at the same decode speed and with the same answers.
 UkisAI's GSQ-RCO IQ3_S is 11.2 GiB; IQ4_XS doesn't leave room for the KV pool next to a Windows desktop.
 
@@ -54,14 +52,11 @@ UkisAI's GSQ-RCO IQ3_S is 11.2 GiB; IQ4_XS doesn't leave room for the KV pool ne
 
 The Qwen vocabulary has 248k tokens, most of them CJK, Cyrillic and other scripts. Their rows in `token_embd` and
 `output` are a large part of a 3-bit file. Policy **P2** keeps ASCII, Latin-1 and Latin Extended-A, and drops
-~107k tokens.
+~107k tokens. The file shrinks by 0.49 GB and decodes ~5% faster, because the output projection gets smaller.
 
-- **Effect:** the file is 0.49 GB smaller and decoding is ~5% faster (the output projection is smaller).
-- **What stays intact:** every other tensor is byte-identical, and `verify_prune.py` checks that. Dropped characters
-  still work through byte fallback, at one token per UTF-8 byte.
-- **Cost:** perplexity on an emoji-heavy corpus went 3.375 → 3.42.
-
-The keep-set is closed under substring, so BPE merges stay reachable.
+Every other tensor stays byte-identical, which `verify_prune.py` checks. The keep-set is closed under substring, so
+BPE merges stay reachable, and dropped characters still work through byte fallback at one token per UTF-8 byte.
+Perplexity on an emoji-heavy corpus rose from 3.375 to 3.42.
 
 ### 3. KV streaming: 262k context on 16 GB
 
@@ -72,14 +67,13 @@ step, so only a small **resident pool** lives in VRAM. raffidahmad's
 
 VRAM layout on a 16 GB card that is also running the desktop:
 
-- **Embeddings on the CPU** (`-ot token_embd.weight=CPU`): an embedding lookup is a pure gather, so there is no speed
-  cost.
-- **`--load-mode none`:** the weights are read once instead of memory-mapped, so they don't stay resident in RAM as
-  well (~10 GB less).
-- **KV cache types:** K `q8_0`, V `q4_0`, for both the main model and the draft.
-- **One resident pool of 1355 MiB**, with no separate decode pool. In an early version, the recipe's 1800 MiB decode
+- Embeddings stay on the CPU (`-ot token_embd.weight=CPU`). An embedding lookup is a plain gather, so this costs no
+  speed.
+- `--load-mode none` reads the weights once instead of memory-mapping them, which keeps ~10 GB out of resident RAM.
+- KV cache types are K `q8_0` and V `q4_0`, for the main model and the draft.
+- One resident pool of 1355 MiB, with no separate decode pool. In an early version, the recipe's 1800 MiB decode
   pool spilled into shared memory and every prefill/decode switch cost 0.4–0.75 s.
-- **One slot.** Two slots with KV streaming hard-reset the machine.
+- One slot: two slots with KV streaming hard-reset the machine.
 
 ### 4. Speculative decoding: MTP + n-gram
 
@@ -91,8 +85,8 @@ Qwen3.8 ships one multi-token-prediction (MTP) layer. These settings were tuned 
 ```
 
 - **MTP draft depth 4, plus n-gram drafts** that start after 6 repeated tokens with a 12-token match: agent decode
-  went 85.6 → 97.8 tok/s (+14%), with chat unchanged. Agent turns repeat a lot (file contents, diffs, tool
-  arguments), and that is where n-gram drafting pays.
+  went 85.6 → 97.8 tok/s (+14%), with chat unchanged. Agent turns repeat a lot of text (file contents, diffs,
+  tool arguments), and n-gram drafts hit on those repeats.
 - **Capping n-gram drafts at 16 tokens** instead of 32 gave another ~+5%. Long drafts were usually rejected partway.
 
 ### 5. A self-distilled MTP head ([`mtp/`](mtp/))
@@ -107,8 +101,7 @@ it was retrained against this exact model:
 3. **Dump the target hidden states** from the quantized model with `llama-dump-hidden`
    ([`mtp/dump-hidden/`](mtp/dump-hidden/)), at about 1,300 tok/s.
 4. **Train only `blk.64`** in PyTorch ROCm on the same GPU (`train_mtp.py`). The last 25% of training windows are
-   on-policy only. The selection criterion is the expected accepted draft length on held-out own sessions, not
-   training loss.
+   on-policy only. Checkpoints are selected on expected accepted draft length for held-out own sessions.
 5. **Write the head back** into the GGUF (`export_mtp.py`), then A/B it on the real server.
 
 | Workload | Original head | Retrained head |
@@ -121,7 +114,7 @@ it was retrained against this exact model:
 Offline, on held-out sessions, expected accepted length rose +7.9% (95% CI +6.7 to +11.4%), with 26 of 28 sessions
 better. A second round with ~2M more tokens didn't beat it, so the head looks saturated at this size.
 
-### 6. Patches to the fork for Windows ([`patches/`](patches/))
+### 6. Fork patches for Windows ([`patches/`](patches/))
 
 One diff against `b540a4b`, made of 44 commits plus merges (listed in [`patches/COMMITS.md`](patches/COMMITS.md)). The parts
 that are on in the measured setup:
@@ -135,8 +128,7 @@ that are on in the measured setup:
   re-planned, but only while the context doesn't fit the pool. Long-context decode improved 5–6% per step.
   Re-planning every time (mode 2) cost 6–7% on short agent turns.
 - **Split arena and pool in ≤1 GiB chunks** (`--kv-stream-split`, `LLAMA_KV_STREAM_POOL_CHUNK_MIB=1024`). On this
-  driver, a *single* allocation larger than ~1.5 GiB ended up in shared memory even with VRAM free; the spill
-  followed the allocation size, not the total budget. Chunking the pool made a larger split budget possible:
+  driver, Windows placed any single allocation above ~1.5 GiB in shared memory, even with VRAM free. Chunking the pool made a larger split budget possible:
   100k-context decode went up 21–54%.
 
 Every change passed the same gates before going live: greedy output byte-identical to the previous build, no
@@ -155,7 +147,7 @@ Also in the patch, but **off by default**:
 `context_proxy.py` sits between clients (a web chat, OpenCode) and llama-server. When a turn ends, it asks the model
 in the background to write notes on that turn's large tool results, as grammar-constrained JSON with one field per
 result. Later requests carry the notes instead of the raw results; the current turn's tool loop is never touched.
-The proxy then prefills the condensed history, so the next message only pays for its own tokens.
+The proxy then prefills the condensed history, so the next message only has to prefill its own tokens.
 
 The notes request is rendered with `/apply-template` from the exact request just served and sent to `/completion`,
 so its prefix is byte-identical and is served from the prompt cache. Thinking is skipped by closing the think block
@@ -170,7 +162,7 @@ Measured on a real 3-question research chat:
 - The third question's context went from 49k → 8.3k tokens, and only 23 tokens needed prefilling.
 - 75k characters of web pages became 3.5k characters of notes in 19 s.
 
-## Things that didn't work
+## Failed experiments
 
 | Tried | Result |
 | --- | --- |
@@ -186,7 +178,7 @@ Measured on a real 3-question research chat:
 | Thread count, polling, process priority, HIP environment variables | No gain |
 | IQ3_XXS | ~1% faster than IQ3_S, +1.1% perplexity, and it exposed the ~143k n-gram hang that the patch fixes |
 
-## Windows pitfalls worth knowing
+## Windows pitfalls
 
 - **Shared-memory spill.** Windows spills to shared memory silently, and decode speed roughly halves. Watch
   "Shared GPU memory" in Task Manager. The desktop compositor alone holds ~2.3 GB of VRAM.
@@ -213,7 +205,7 @@ hf download Safasfly/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-P2-MTP1-GGUF --local-di
 powershell -ExecutionPolicy Bypass -File server\launch.ps1 -Model models\Swift-1.5-P2-GSQ-RCO-IQ3_S-mtp1.gguf
 ```
 
-The server then speaks the OpenAI API on `http://127.0.0.1:18080/v1`. Reasoning effort is set per request:
+llama-server then serves the OpenAI API on `http://127.0.0.1:18080/v1`. Reasoning effort is set per request:
 `"chat_template_kwargs": {"reasoning_effort": "low" | "medium" | "xhigh"}`, with `xhigh` as the default.
 
 Condensing proxy: `python proxy/context_proxy.py 8090 18080`, then point clients at `http://127.0.0.1:8090/v1`. Add

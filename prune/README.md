@@ -2,10 +2,10 @@
 
 Vocabulary pruning for byte-level BPE GGUF models.
 
-A multilingual vocab is mostly dead weight for English and code work. Dropping
+English and code work uses only a small part of a multilingual vocab. Dropping
 the unused tokens shrinks `token_embd.weight` and `output.weight`, which is
 where a large fraction of a small quant's file size lives. Rows are gathered in
-quantized space — no dequant/requant — so every surviving row is bit-identical
+quantized space without dequantizing, so every surviving row is bit-identical
 to the source.
 
 ## Tools
@@ -30,7 +30,7 @@ merge producing a kept token has kept parents, so BPE reachability survives.
 | `P1G` | P1M + Greek, box-drawing, status glyphs, units, currency |
 
 `--keep-chars 'πλΩ'` adds characters; `--drop-chars` removes them from the
-policy set. ASCII cannot be dropped — that would break substring closure and
+policy set. ASCII cannot be dropped, because that would break substring closure and
 byte fallback.
 
 Byte-fallback tokens, specials, and partial-UTF-8 fragments are always kept, so
@@ -39,14 +39,14 @@ token per UTF-8 byte instead of one per character.
 
 ## Verifying
 
-`verify_prune.py` always runs the structural checks — kept tokens exist in the
+`verify_prune.py` always runs the structural checks: kept tokens exist in the
 source and keep their order, specials and all 256 byte-fallback tokens survive,
 merges reference only kept tokens and keep their priority, non-vocab tensors are
 byte-identical, sampled vocab rows match their source rows.
 
 Passing `--policy` adds the check the structural ones cannot make: that the
 gather implemented the policy you asked for. A prune run with the wrong
-`--policy` produces a perfectly consistent file containing the wrong tokens and
+`--policy` produces a consistent file containing the wrong tokens and
 passes everything else, so this replays the keep-set construction against the
 source and demands an exact match. Pass the same flags you pruned with.
 
@@ -55,8 +55,8 @@ source and demands an exact match. Pass the same flags you pruned with.
 Python 3, `numpy`, `gguf`. `regex` is optional and improves script detection in
 `vocab_audit.py`.
 
-The vocab must be byte-level BPE (`tokenizer.ggml.model` = `gpt2` or `bpe`) —
-checked, and refused otherwise. An SPM vocab stores pieces as raw UTF-8 with a
+The vocab must be byte-level BPE (`tokenizer.ggml.model` = `gpt2` or `bpe`);
+the tools check this and refuse anything else. An SPM vocab stores pieces as raw UTF-8 with a
 U+2581 marker, so the GPT-2 byte reversal would silently produce wrong bytes
 rather than fail. Nothing else is architecture-specific; metadata is copied key
 by key.
@@ -66,6 +66,6 @@ by key.
 `P1M_EXTRA` is frozen: a model was built with it, and `verify_prune --policy
 P1M` still has to reproduce that set exactly. New characters go in `P1G`.
 
-Some kept characters are inert on any given model — nothing in the Qwen3.5
-vocab contains U+221E or U+2211, for instance. Harmless, and they still apply to
-vocabs that do carry them.
+Some kept characters match no token in a given model: nothing in the Qwen3.5
+vocab contains U+221E or U+2211, for instance. They do no harm and still apply
+to vocabs that have them.
